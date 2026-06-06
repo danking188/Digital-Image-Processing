@@ -1,8 +1,8 @@
 import cv2
 import numpy as np
 import math
-import matplotlib.pyplot as plt
-from collections import Counter
+import argparse
+from pathlib import Path
 
 
 def ensure_odd(k: int) -> int:
@@ -12,6 +12,8 @@ def ensure_odd(k: int) -> int:
 
 def show(img, title=None, is_bgr=True, figsize=(7, 5)):
     """Display an image in Jupyter (OpenCV loads BGR by default)."""
+    import matplotlib.pyplot as plt
+
     plt.figure(figsize=figsize)
     if img.ndim == 2:
         plt.imshow(img, cmap="gray")
@@ -300,12 +302,61 @@ def count_particles(
     return num1, num2, vis_all, vis_non, debug
 
 
-# ------------------ run ------------------
-img = cv2.imread("data/222.jpg")  # or your own path
-num1, num2, vis_all, vis_non, dbg = count_particles(img)
+def run_particle_count(image_path: str, output_dir: str = "outputs", show_plots: bool = False, roi=None):
+    """Run particle counting and save result visualizations."""
+    img = cv2.imread(image_path)
+    if img is None:
+        raise FileNotFoundError(f"Cannot read: {image_path}")
 
-print("Num1 =", num1, "Num2 =", num2)
-show(vis_all, "All (Num1)")
-show(vis_non, "Non-overlap only (Num2)")
-show(dbg["binary"], "Binary", is_bgr=False)
-show(dbg["ws_boundary_vis"], "Watershed boundary")
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    num1, num2, vis_all, vis_non, dbg = count_particles(img, roi=roi)
+
+    all_file = output_path / "particles_all.png"
+    nonoverlap_file = output_path / "particles_nonoverlap.png"
+    binary_file = output_path / "particles_binary.png"
+    watershed_file = output_path / "particles_watershed_boundary.png"
+
+    cv2.imwrite(str(all_file), vis_all)
+    cv2.imwrite(str(nonoverlap_file), vis_non)
+    cv2.imwrite(str(binary_file), dbg["binary"])
+    cv2.imwrite(str(watershed_file), dbg["ws_boundary_vis"])
+
+    if show_plots:
+        show(vis_all, "All (Num1)")
+        show(vis_non, "Non-overlap only (Num2)")
+        show(dbg["binary"], "Binary", is_bgr=False)
+        show(dbg["ws_boundary_vis"], "Watershed boundary")
+
+    return {
+        "num_all": num1,
+        "num_nonoverlap": num2,
+        "all": str(all_file),
+        "nonoverlap": str(nonoverlap_file),
+        "binary": str(binary_file),
+        "watershed": str(watershed_file),
+    }
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Count particles with thresholding and watershed splitting.")
+    parser.add_argument("--input", default="data/222.jpg", help="Input image path.")
+    parser.add_argument("--output-dir", default="outputs", help="Directory for generated images.")
+    parser.add_argument("--show", action="store_true", help="Display diagnostic plots after processing.")
+    parser.add_argument(
+        "--roi",
+        nargs=4,
+        type=int,
+        metavar=("X", "Y", "W", "H"),
+        help="Optional region of interest.",
+    )
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    result = run_particle_count(args.input, args.output_dir, args.show, tuple(args.roi) if args.roi else None)
+    print(f"Num1 (all): {result['num_all']}")
+    print(f"Num2 (non-overlap): {result['num_nonoverlap']}")
+    print(f"Saved visualization: {result['all']}")

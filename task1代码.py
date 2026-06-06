@@ -1,10 +1,11 @@
 import numpy as np
 import cv2
 import math
-import matplotlib.pyplot as plt
+import argparse
+from pathlib import Path
 
 # -------------------------- Core Configuration --------------------------
-img_path = "data/FigP0520.tif"  # Input image path
+DEFAULT_IMAGE_PATH = "data/FigP0520.tif"
 
 # Crosshair parameters for PSF estimation
 CROSS_LEN = 30    # Crosshair arm length (pixels)
@@ -456,10 +457,13 @@ def sharpen_on_mask(img01: np.ndarray, mask01: np.ndarray, sigma=0.9, amount=0.6
     out = base + amount * m * detail
     return np.clip(out, 0, 1)
 
-# -------------------------- Main Pipeline --------------------------
-if __name__ == "__main__":
+def run_vessel_enhancement(image_path: str, output_dir: str = "outputs", show_plot: bool = False):
+    """Run the full vessel enhancement pipeline and save diagnostic outputs."""
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
     # Load image
-    img = load_grayscale01(img_path)
+    img = load_grayscale01(image_path)
 
     # Locate crosshair & estimate PSF
     cy, cx, score = find_crosshair_by_template(img, roi_size=ROI_SIZE, scale=TM_SCALE)
@@ -538,16 +542,46 @@ if __name__ == "__main__":
     out = gamma_correct(out, 0.95)
 
     # Save results
-    cv2.imwrite("FigP0520_clear_vessel_fix3.png", to_u8(out))
-    cv2.imwrite("FigP0520_rest_tvrl.png", to_u8(rest))
-    cv2.imwrite("FigP0520_psf.png", to_u8(psf / (psf.max() + 1e-12)))
+    final_file = output_path / "vessel_enhanced.png"
+    restored_file = output_path / "vessel_restored_tvrl.png"
+    psf_file = output_path / "estimated_psf.png"
+    cv2.imwrite(str(final_file), to_u8(out))
+    cv2.imwrite(str(restored_file), to_u8(rest))
+    cv2.imwrite(str(psf_file), to_u8(psf / (psf.max() + 1e-12)))
 
-    # Visualize steps
-    plt.figure(figsize=(22,10))
-    plt.subplot(2,6,1); plt.imshow(img, cmap="gray"); plt.title("Original"); plt.axis("off")
-    plt.subplot(2,6,2); plt.imshow(rest, cmap="gray"); plt.title("TV-RL"); plt.axis("off")
-    plt.subplot(2,6,3); plt.imshow(flat_map, cmap="gray"); plt.title("Flatten map"); plt.axis("off")
-    plt.subplot(2,6,4); plt.imshow(th_map, cmap="gray"); plt.title("Line Top-hat"); plt.axis("off")
-    plt.subplot(2,6,5); plt.imshow(out, cmap="gray"); plt.title("Final"); plt.axis("off")  
-    plt.subplot(2,6,6); plt.imshow(psf, cmap="gray"); plt.title(f"PSF sx={sx:.2f}, sy={sy:.2f}, k={ksize}"); plt.axis("off")  
-    plt.tight_layout(); plt.show()
+    if show_plot:
+        import matplotlib.pyplot as plt
+
+        plt.figure(figsize=(22,10))
+        plt.subplot(2,6,1); plt.imshow(img, cmap="gray"); plt.title("Original"); plt.axis("off")
+        plt.subplot(2,6,2); plt.imshow(rest, cmap="gray"); plt.title("TV-RL"); plt.axis("off")
+        plt.subplot(2,6,3); plt.imshow(flat_map, cmap="gray"); plt.title("Flatten map"); plt.axis("off")
+        plt.subplot(2,6,4); plt.imshow(th_map, cmap="gray"); plt.title("Line Top-hat"); plt.axis("off")
+        plt.subplot(2,6,5); plt.imshow(out, cmap="gray"); plt.title("Final"); plt.axis("off")
+        plt.subplot(2,6,6); plt.imshow(psf, cmap="gray"); plt.title(f"PSF sx={sx:.2f}, sy={sy:.2f}, k={ksize}"); plt.axis("off")
+        plt.tight_layout(); plt.show()
+
+    return {
+        "final": str(final_file),
+        "restored": str(restored_file),
+        "psf": str(psf_file),
+        "psf_sigma_x": sx,
+        "psf_sigma_y": sy,
+        "template_score": score,
+    }
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Enhance vessel-like structures in a grayscale image.")
+    parser.add_argument("--input", default=DEFAULT_IMAGE_PATH, help="Input grayscale image path.")
+    parser.add_argument("--output-dir", default="outputs", help="Directory for generated images.")
+    parser.add_argument("--show", action="store_true", help="Display diagnostic plots after processing.")
+    return parser.parse_args()
+
+
+# -------------------------- Main Pipeline --------------------------
+if __name__ == "__main__":
+    args = parse_args()
+    result = run_vessel_enhancement(args.input, args.output_dir, args.show)
+    print(f"Saved enhanced image: {result['final']}")
+    print(f"Estimated PSF sigma: sx={result['psf_sigma_x']:.2f}, sy={result['psf_sigma_y']:.2f}")
