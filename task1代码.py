@@ -3,6 +3,7 @@ import cv2
 import math
 import argparse
 from pathlib import Path
+from image_io import write_image
 
 # -------------------------- Core Configuration --------------------------
 DEFAULT_IMAGE_PATH = "data/FigP0520.tif"
@@ -86,6 +87,8 @@ def find_crosshair_by_template(img01: np.ndarray, roi_size=260, scale=5):
     roi = to_u8(img01[y0:h, x0:w])
     roi_up = cv2.resize(roi, (roi.shape[1]*scale, roi.shape[0]*scale), interpolation=cv2.INTER_CUBIC)
     tmpl = make_cross_template(CROSS_LEN, CROSS_W, val=255, scale=scale)
+    if roi_up.shape[0] < tmpl.shape[0] or roi_up.shape[1] < tmpl.shape[1]:
+        raise ValueError("Image/ROI must be at least 70 x 70 pixels for crosshair matching")
 
     res = cv2.matchTemplate(roi_up, tmpl, cv2.TM_CCOEFF_NORMED)
     _, maxv, _, max_loc = cv2.minMaxLoc(res)
@@ -96,6 +99,10 @@ def find_crosshair_by_template(img01: np.ndarray, roi_size=260, scale=5):
 
 def psf_gaussian(ksize: int, sx: float, sy: float):
     """Generate 2D Gaussian PSF (normalized to sum=1)"""
+    if not isinstance(ksize, (int, np.integer)) or ksize <= 0 or ksize % 2 == 0:
+        raise ValueError("PSF size must be a positive odd integer")
+    if not np.isfinite([sx, sy]).all() or sx <= 0 or sy <= 0:
+        raise ValueError("PSF sigma must be finite and positive")
     ax = np.arange(ksize, dtype=np.float32) - (ksize - 1)/2.0
     xx, yy = np.meshgrid(ax, ax)
     h = np.exp(-0.5 * ((xx/max(sx,1e-6))**2 + (yy/max(sy,1e-6))**2)).astype(np.float32)
@@ -155,10 +162,12 @@ def wiener_deconv(img01: np.ndarray, psf: np.ndarray, K=0.008, eps=1e-7):
     """Wiener deconvolution (initial guess for RL)"""
     H, W = img01.shape
     kh, kw = psf.shape
+    if kh > H or kw > W:
+        raise ValueError("PSF must not be larger than the image")
     psf_pad = np.zeros((H, W), np.float32)
     psf_pad[:kh, :kw] = psf
-    psf_pad = np.roll(psf_pad, -kh//2, axis=0)
-    psf_pad = np.roll(psf_pad, -kw//2, axis=1)
+    psf_pad = np.roll(psf_pad, -(kh // 2), axis=0)
+    psf_pad = np.roll(psf_pad, -(kw // 2), axis=1)
 
     Hf = np.fft.fft2(psf_pad)
     G  = np.fft.fft2(img01)
@@ -545,9 +554,9 @@ def run_vessel_enhancement(image_path: str, output_dir: str = "outputs", show_pl
     final_file = output_path / "vessel_enhanced.png"
     restored_file = output_path / "vessel_restored_tvrl.png"
     psf_file = output_path / "estimated_psf.png"
-    cv2.imwrite(str(final_file), to_u8(out))
-    cv2.imwrite(str(restored_file), to_u8(rest))
-    cv2.imwrite(str(psf_file), to_u8(psf / (psf.max() + 1e-12)))
+    write_image(final_file, to_u8(out))
+    write_image(restored_file, to_u8(rest))
+    write_image(psf_file, to_u8(psf / (psf.max() + 1e-12)))
 
     if show_plot:
         import matplotlib.pyplot as plt
