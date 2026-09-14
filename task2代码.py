@@ -3,6 +3,7 @@ import numpy as np
 import math
 import argparse
 from pathlib import Path
+from image_io import write_image
 
 
 def ensure_odd(k: int) -> int:
@@ -222,12 +223,20 @@ def count_particles(
     Returns:
       num1, num2, vis_all, vis_nonoverlap, debug(dict)
     """
-    if img_bgr is None:
-        raise ValueError("img_bgr is None")
+    if not isinstance(img_bgr, np.ndarray) or img_bgr.ndim != 3 or img_bgr.shape[2] != 3 or img_bgr.dtype != np.uint8 or min(img_bgr.shape[:2]) < 2:
+        raise ValueError("img_bgr must be a non-empty uint8 BGR image, at least 2 x 2")
+    if not 0 < dist_ratio < 1:
+        raise ValueError("dist_ratio must be between 0 and 1 (exclusive)")
+    if not np.isfinite(overlap_alpha) or overlap_alpha <= 0:
+        raise ValueError("overlap_alpha must be finite and positive")
 
     img = img_bgr.copy()
     if roi is not None:
+        if len(roi) != 4 or any(not isinstance(v, (int, np.integer)) for v in roi):
+            raise ValueError("ROI must contain four integers: x, y, width, height")
         x, y, w, h = roi
+        if x < 0 or y < 0 or w < 2 or h < 2 or x + w > img.shape[1] or y + h > img.shape[0]:
+            raise ValueError("ROI must lie inside the image and be at least 2 x 2")
         img = img[y:y+h, x:x+w].copy()
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -318,10 +327,10 @@ def run_particle_count(image_path: str, output_dir: str = "outputs", show_plots:
     binary_file = output_path / "particles_binary.png"
     watershed_file = output_path / "particles_watershed_boundary.png"
 
-    cv2.imwrite(str(all_file), vis_all)
-    cv2.imwrite(str(nonoverlap_file), vis_non)
-    cv2.imwrite(str(binary_file), dbg["binary"])
-    cv2.imwrite(str(watershed_file), dbg["ws_boundary_vis"])
+    write_image(all_file, vis_all)
+    write_image(nonoverlap_file, vis_non)
+    write_image(binary_file, dbg["binary"])
+    write_image(watershed_file, dbg["ws_boundary_vis"])
 
     if show_plots:
         show(vis_all, "All (Num1)")
